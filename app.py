@@ -1,132 +1,127 @@
 import streamlit as st
 import pandas as pd
-import math
+import numpy as np
 import os
-import re
 
-# --- CONFIGURARE PAGINĂ ---
-st.set_page_config(page_title="Retail Dynamic Pricing - Catalog Altex", layout="wide")
+st.set_page_config(page_title="Retail Dynamic Pricing - Catalog Altex", layout="wide", page_icon="📊")
 
-# --- FUNCȚIE DE CITIRE ROBUSTĂ (PENTRU FORMATUL TAB) ---
 @st.cache_data
 def load_data_from_catalog(file_name):
-    catalog = []
     if not os.path.exists(file_name):
-        return []
+        return pd.DataFrame()
     
-    with open(file_name, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line: continue  # Sărim peste liniile goale
-            
-            # Împărțim linia după TAB (\t) sau minim 2 spații consecutive
-            parts = re.split(r'\t| {2,}', line)
-            
-            if len(parts) >= 3:
-                try:
-                    sku = parts[0].strip()
-                    nume = parts[1].strip()
-                    # Curățăm prețul de orice caracter care nu e cifră sau punct
-                    raw_price = parts[2].replace('RON', '').replace(' ', '').replace(',', '.').strip()
-                    pret = float(raw_price)
-                    
-                    catalog.append({
-                        "SKU": sku, 
-                        "Produs": nume, 
-                        "Pret_Altex": pret
-                    })
-                except:
-                    continue # Dacă un rând e greșit, trecem la următorul
-    return catalog
+    try:
+        
+        df = pd.read_csv(
+            file_name, 
+            sep=r'\t| {2,}', 
+            engine='python', 
+            header=None, 
+            names=["SKU", "Produs", "Pret_Altex"]
+        )
+        
+        df['SKU'] = df['SKU'].astype(str).str.strip()
+        df['Produs'] = df['Produs'].astype(str).str.strip()
+        
+        df['Pret_Altex'] = (df['Pret_Altex']
+                            .astype(str)
+                            .str.replace('RON', '', case=False)
+                            .str.replace(' ', '')
+                            .str.replace(',', '.')
+                            .str.strip())
+        df['Pret_Altex'] = pd.to_numeric(df['Pret_Altex'], errors='coerce')
+        
+        return df.dropna(subset=['SKU', 'Pret_Altex']).reset_index(drop=True)
+    except Exception as e:
+        st.error(f"Eroare la citirea fișierului: {e}")
+        return pd.DataFrame()
 
-# 1. Încărcăm datele din c.txt
-data = load_data_from_catalog("c.txt")
+df_catalog = load_data_from_catalog("c.txt")
 
 st.title("📊 Pricing Engine - Gestiune Catalog Complet")
 
-if data:
-    st.success(f"✅ S-au încărcat {len(data)} produse din baza de date c.txt")
+if not df_catalog.empty:
+    st.success(f"✅ S-au încărcat {len(df_catalog)} produse din baza de date c.txt")
 else:
-    st.error("⚠️ Eroare: Fișierul c.txt nu a fost găsit sau este gol.")
+    st.error("⚠️ Eroare: Fișierul c.txt nu a fost găsit, este gol sau are un format invalid.")
 
-# --- SIDEBAR: STRATEGIE COMERCIALĂ ---
 st.sidebar.header("⚙️ Setări Campanii")
 app_discount = st.sidebar.slider("Discount Aplicație (%)", 0, 30, 20)
 rabla_voucher = st.sidebar.number_input("Voucher Rabla (RON)", 0, 500, 150)
 min_margin = st.sidebar.slider("Marjă Minimă Profit (%)", 1, 15, 7)
 
-# --- LOGICĂ SELECȚIE PRODUSE ---
-if data:
+if 'df_monitor' not in st.session_state:
+    st.session_state.df_monitor = pd.DataFrame(columns=["SKU", "Produs", "Cost_Achizitie", "Pret_Altex", "Stoc_Depozit"])
+
+if not df_catalog.empty:
     st.subheader("🔎 Selector Produse")
-    # Creăm o listă de selecție formată din SKU și Nume
-    options = [f"[{p['SKU']}] {p['Produs']}" for p in data]
+   
+    options = df_catalog.apply(lambda row: f"[{row['SKU']}] {row['Produs']}", axis=1).tolist()
     selected_option = st.selectbox("Caută și adaugă produse în lista de monitorizare:", options)
 
     if st.button("➕ Adaugă în Tabel"):
-        # Extragem SKU-ul dintre paranteze
         sku_clean = selected_option.split(']')[0][1:]
-        info = next(item for item in data if item["SKU"] == sku_clean)
         
-        # Simulare cost achiziție (WAC) - aprox 78% din preț
-        cost_simulat = round(info["Pret_Altex"] * 0.78, 2)
-        
-        new_row = {
-            "SKU": info["SKU"],
-            "Produs": info["Produs"],
-            "Cost_Achizitie": cost_simulat,
-            "Pret_Altex": info["Pret_Altex"],
-            "Stoc_Depozit": 15
-        }
-        
-        if 'df_monitor' not in st.session_state:
-            st.session_state.df_monitor = pd.DataFrame([new_row])
-        else:
-            # Evităm duplicatele în tabel
-            if new_row["SKU"] not in st.session_state.df_monitor["SKU"].values:
-                st.session_state.df_monitor = pd.concat([st.session_state.df_monitor, pd.DataFrame([new_row])], ignore_index=True)
+        if sku_clean not in st.session_state.df_monitor["SKU"].values:
+            info = df_catalog[df_catalog["SKU"] == sku_clean].iloc[0]
+            cost_simulat = round(info["Pret_Altex"] * 0.78, 2)
+            
+            new_row = pd.DataFrame([{
+                "SKU": info["SKU"],
+                "Produs": info["Produs"],
+                "Cost_Achizitie": cost_simulat,
+                "Pret_Altex": info["Pret_Altex"],
+                "Stoc_Depozit": 15
+            }])
+            
+            st.session_state.df_monitor = pd.concat([st.session_state.df_monitor, new_row], ignore_index=True)
+            st.rerun()
 
-# --- DASHBOARD CALCUL ȘI AFIȘARE ---
-if 'df_monitor' in st.session_state and not st.session_state.df_monitor.empty:
+if not st.session_state.df_monitor.empty:
     st.markdown("---")
     st.subheader("📋 Analiză Prețuri la Raft")
     
-    # Permitem editarea costului sau stocului direct în tabel
-    edited_df = st.data_editor(st.session_state.df_monitor, num_rows="dynamic", use_container_width=True)
+    edited_df = st.data_editor(st.session_state.df_monitor, num_rows="dynamic", use_container_width=True, key="editor_tabel")
+    
     st.session_state.df_monitor = edited_df
 
     if st.button("🚀 EXECUTĂ RE-PRICING"):
-        res_prices = []
-        res_status = []
+        df_calc = edited_df.copy()
         
-        for _, row in edited_df.iterrows():
-            # Strategie: Vrem să fim cu 5 lei sub Altex la prețul final plătit de client
-            target_net = row['Pret_Altex'] - 5
-            
-            # Formula inversă pentru calculul prețului de etichetă (Shelf Price)
-            # Ținem cont de discountul de aplicație și de Rabla
-            factor_app = 1 - (app_discount / 100)
-            suggested_shelf = (target_net + rabla_voucher) / factor_app
-            
-            # Verificare marjă de siguranță
-            min_net_allowed = row['Cost_Achizitie'] * (1 + min_margin / 100)
-            actual_net = (suggested_shelf * factor_app) - rabla_voucher
-            
-            if actual_net < min_net_allowed:
-                # Dacă pierdem bani, forțăm prețul minim care să acopere marja
-                suggested_shelf = (min_net_allowed + rabla_voucher) / factor_app
-                status = "🔴 Marjă Protejată"
-            else:
-                status = "🟢 Competitiv"
-            
-            # Rotunjire psihologică .90
-            final_p = round(math.floor(suggested_shelf) + 0.90, 2)
-            res_prices.append(final_p)
-            res_status.append(status)
+        factor_app = 1 - (app_discount / 100)
+        target_net = df_calc['Pret_Altex'] - 5
         
-        edited_df['Pret_Nou_Eticheta'] = res_prices
-        edited_df['Status_Profit'] = res_status
+        suggested_shelf = (target_net + rabla_voucher) / factor_app
         
-        st.dataframe(edited_df, use_container_width=True)
+        min_net_allowed = df_calc['Cost_Achizitie'] * (1 + min_margin / 100)
+        actual_net = (suggested_shelf * factor_app) - rabla_voucher
         
-        # Vizualizare grafică a diferențelor
-        st.bar_chart(edited_df.set_index('SKU')[['Pret_Altex', 'Pret_Nou_Eticheta']])
+        suggested_shelf = np.where(
+            actual_net < min_net_allowed,
+            (min_net_allowed + rabla_voucher) / factor_app,
+            suggested_shelf
+        )
+        
+        df_calc['Status_Profit'] = np.where(actual_net < min_net_allowed, "🔴 Marjă Protejată", "🟢 Competitiv")
+        
+        df_calc['Pret_Nou_Eticheta'] = np.floor(suggested_shelf) + 0.90
+        
+        df_calc['Profit_Estimat_RON'] = round(((df_calc['Pret_Nou_Eticheta'] * factor_app) - rabla_voucher) - df_calc['Cost_Achizitie'], 2)
+        
+        st.session_state.df_monitor = df_calc
+        st.rerun()
+
+    if 'Pret_Nou_Eticheta' in st.session_state.df_monitor.columns:
+        st.markdown("### 📈 Rezultate Re-Pricing")
+        
+        def color_status(val):
+            if val == "🔴 Marjă Protejată": return 'background-color: #ffcccc; color: black;'
+            if val == "🟢 Competitiv": return 'background-color: #ccffcc; color: black;'
+            return ''
+            
+        st.dataframe(
+            st.session_state.df_monitor.style.applymap(color_status, subset=['Status_Profit']), 
+            use_container_width=True
+        )
+        
+        st.bar_chart(st.session_state.df_monitor.set_index('Produs')[['Pret_Altex', 'Pret_Nou_Eticheta']])

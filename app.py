@@ -111,14 +111,27 @@ if not st.session_state.df_monitor.empty:
         st.session_state.df_monitor = df_calc
         st.rerun()
 
-    if 'Pret_Nou_Eticheta' in st.session_state.df_monitor.columns:
-        st.markdown("### 📈 Rezultate Re-Pricing")
-        
-        def color_status(val):
-            if val == "🔴 Marjă Protejată": return 'background-color: #ffcccc; color: black;'
-            if val == "🟢 Competitiv": return 'background-color: #ccffcc; color: black;'
+    # Dacă tabelul conține deja calculele de re-pricing, le afișăm vizual
+if 'Pret_Nou_Eticheta' in st.session_state.df_monitor.columns:
+    st.markdown("### 📈 Rezultate Re-Pricing")
+    
+    # Adăugăm str.strip() sau verificări solide pentru a evita erorile de formatare
+    def color_status(val):
+        if pd.isna(val): 
             return ''
-            
+        val_str = str(val).strip()
+        if "🔴" in val_str or "Marjă Protejată" in val_str: 
+            return 'background-color: #ffcccc; color: black;'
+        if "🟢" in val_str or "Competitiv" in val_str: 
+            return 'background-color: #ccffcc; color: black;'
+        return ''
+        
+    try:
+        st.dataframe(
+            st.session_state.df_monitor.style.map(color_status, subset=['Status_Profit']), 
+            use_container_width=True
+        )
+    except AttributeError:
         st.dataframe(
             st.session_state.df_monitor.style.applymap(color_status, subset=['Status_Profit']), 
             use_container_width=True

@@ -111,6 +111,9 @@ def calculate_repricing(dataframe, discount, voucher, margin):
             
             final_p = round(math.floor(suggested_shelf) + 0.90, 2)
             
+            if ((final_p * factor_app) - voucher) > target_net and status == "🟢 Competitiv":
+                final_p = round(math.floor(suggested_shelf) - 0.10, 2)
+            
             venit_net_final = (final_p * factor_app) - voucher
             profit_ron = round(venit_net_final - cost, 2)
             
@@ -130,20 +133,26 @@ if 'df_monitor' in st.session_state and not st.session_state.df_monitor.empty:
     st.subheader("📋 Panou de Gestiune și Analiză Prețuri")
     st.write("Poți edita direct în tabel valorile din 'Cost_Achizitie' sau 'Stoc_Depozit':")
     
-    edited_df = st.data_editor(st.session_state.df_monitor, num_rows="dynamic", use_container_width=True)
+    coloane_intrare = ["SKU", "Produs", "Cost_Achizitie", "Pret_Altex", "Stoc_Depozit"]
+    df_intrare = st.session_state.df_monitor[coloane_intrare]
+    
+    edited_df = st.data_editor(df_intrare, num_rows="dynamic", use_container_width=True, hide_index=True)
+    
+    st.session_state.df_monitor = edited_df.copy()
     
     prices, statuses, profits = calculate_repricing(edited_df, app_discount, rabla_voucher, min_margin)
     
-    edited_df['Pret_Nou_Eticheta'] = prices
-    edited_df['Status_Profit'] = statuses
-    edited_df['Profit_Estimat_RON'] = profits
-    
-    st.session_state.df_monitor = edited_df
-
-    st.dataframe(edited_df, use_container_width=True, hide_index=True)
+    df_rezultate = edited_df.copy()
+    df_rezultate['Status_Profit'] = statuses
+    df_rezultate['Pret_Nou_Eticheta'] = prices
+    df_rezultate['Profit_Estimat_RON'] = profits
     
     st.write("")
-    csv_data = edited_df.to_csv(index=False).encode('utf-8')
+    st.subheader("📈 Rezultate Re-Pricing")
+    st.dataframe(df_rezultate, use_container_width=True, hide_index=True)
+    
+    st.write("")
+    csv_data = df_rezultate.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="📥 Descarcă Raportul de Pricing (CSV)",
         data=csv_data,
@@ -152,5 +161,5 @@ if 'df_monitor' in st.session_state and not st.session_state.df_monitor.empty:
     )
     
     st.write("")
-    st.subheader("📈 Vizualizare Grafică")
-    st.bar_chart(edited_df.set_index('Produs')[['Pret_Altex', 'Pret_Nou_Eticheta']])
+    st.subheader("📊 Vizualizare Grafică")
+    st.bar_chart(df_rezultate.set_index('Produs')[['Pret_Altex', 'Pret_Nou_Eticheta']])

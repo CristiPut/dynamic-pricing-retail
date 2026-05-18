@@ -111,11 +111,9 @@ if not st.session_state.df_monitor.empty:
         st.session_state.df_monitor = df_calc
         st.rerun()
 
-    # Dacă tabelul conține deja calculele de re-pricing, le afișăm vizual
 if 'Pret_Nou_Eticheta' in st.session_state.df_monitor.columns:
     st.markdown("### 📈 Rezultate Re-Pricing")
     
-    # Adăugăm str.strip() sau verificări solide pentru a evita erorile de formatare
     def color_status(val):
         if pd.isna(val): 
             return ''
@@ -127,14 +125,29 @@ if 'Pret_Nou_Eticheta' in st.session_state.df_monitor.columns:
         return ''
         
     try:
-        st.dataframe(
-            st.session_state.df_monitor.style.map(color_status, subset=['Status_Profit']), 
-            use_container_width=True
-        )
+        styler = (st.session_state.df_monitor.style
+                  .map(color_status, subset=['Status_Profit'])
+                  .format({
+                      'Cost_Achizitie': '{:.2f}',
+                      'Pret_Altex': '{:.2f}',
+                      'Pret_Nou_Eticheta': '{:.2f}',
+                      'Profit_Estimat_RON': '{:.2f}'
+                  })
+                  .hide(axis="index"))
+                  
+        st.dataframe(styler, use_container_width=True)
+        
     except AttributeError:
-        st.dataframe(
-            st.session_state.df_monitor.style.applymap(color_status, subset=['Status_Profit']), 
-            use_container_width=True
-        )
+        styler = (st.session_state.df_monitor.style
+                  .applymap(color_status, subset=['Status_Profit'])
+                  .format({
+                      'Cost_Achizitie': '{:.2f}',
+                      'Pret_Altex': '{:.2f}',
+                      'Pret_Nou_Eticheta': '{:.2f}',
+                      'Profit_Estimat_RON': '{:.2f}'
+                  })
+                  .hide(axis="index"))
+                  
+        st.dataframe(styler, use_container_width=True)
         
         st.bar_chart(st.session_state.df_monitor.set_index('Produs')[['Pret_Altex', 'Pret_Nou_Eticheta']])
